@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>베스트 플레이어 투표</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+        
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f1f5f9;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .candidate-btn { transition: all 0.1s ease; -webkit-tap-highlight-color: transparent; }
+        .candidate-btn:active:not(:disabled) { transform: scale(0.96); filter: brightness(0.9); }
+        .candidate-btn:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(0.5); }
+
+        .slot-btn { transition: all 0.2s ease; }
+        .slot-btn.active { border-color: #3b82f6; background-color: #eff6ff; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2); transform: scale(1.02); }
+
+        .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); }
+        .student-disabled { opacity: 0.3; cursor: not-allowed; filter: grayscale(1); pointer-events: none; }
+        .vote-locked { pointer-events: none; }
+
+        .modal-overlay { background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-10 flex flex-col items-center">
+
+    <div id="app" class="w-full max-w-6xl">
+        <header class="text-center mb-10">
+            <h1 class="text-5xl font-extrabold text-slate-900 mb-3 tracking-tight">🏆 BEST PLAYER</h1>
+            <p id="sub-title" class="text-slate-500 text-xl font-medium">슬롯을 선택한 후 학생 이름을 터치하세요</p>
+        </header>
+
+        <!-- (1) 후보 입력 페이지 -->
+        <section id="setup-page" class="fade-in space-y-8">
+            <!-- 명단 관리 바 -->
+            <div class="flex flex-wrap items-center justify-center gap-4 mb-6">
+                <button onclick="openModal()" class="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 shadow-md">➕ 새 명단 작성</button>
+                <div class="relative">
+                    <select id="list-selector" onchange="loadSelectedList()" class="appearance-none bg-white border-2 border-slate-200 px-10 py-3 rounded-xl font-bold text-slate-700 outline-none focus:border-indigo-500 transition-all cursor-pointer min-w-[200px]">
+                        <option value="">명단 선택하기</option>
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                        <svg class="h-5 w-5 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
+                    </div>
+                </div>
+                <button id="delete-list-btn" onclick="deleteCurrentList()" class="bg-white border-2 border-red-200 text-red-500 px-6 py-3 rounded-xl font-bold hover:bg-red-50 transition-colors">🗑️ 명단 삭제</button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Team A 슬롯 -->
+                <div class="glass-card p-6 rounded-[2.5rem] border-t-[12px] border-blue-500">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-2xl font-black text-blue-600">TEAM A 후보</h2>
+                            <span id="count-a" class="bg-blue-100 text-blue-600 px-3 py-1 rounded-full text-sm font-bold">0/10</span>
+                        </div>
+                        <button onclick="clearTeam('a')" class="text-sm font-bold text-slate-400 hover:text-red-500 transition-colors">전체 초기화</button>
+                    </div>
+                    <div id="slots-a" class="grid grid-cols-2 gap-3"></div>
+                </div>
+                <!-- Team B 슬롯 -->
+                <div class="glass-card p-6 rounded-[2.5rem] border-t-[12px] border-red-500">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-2xl font-black text-red-600">TEAM B 후보</h2>
+                            <span id="count-b" class="bg-red-100 text-red-600 px-3 py-1 rounded-full text-sm font-bold">0/10</span>
+                        </div>
+                        <button onclick="clearTeam('b')" class="text-sm font-bold text-slate-400 hover:text-red-500 transition-colors">전체 초기화</button>
+                    </div>
+                    <div id="slots-b" class="grid grid-cols-2 gap-3"></div>
+                </div>
+            </div>
+
+            <!-- 학생 명단 영역 -->
+            <div class="glass-card p-8 rounded-[2.5rem] bg-slate-800 border-2 border-slate-700 shadow-2xl">
+                <div class="flex justify-between items-center mb-6 px-4">
+                    <h3 id="current-list-name" class="text-white text-xl font-bold">학생 명단</h3>
+                    <p class="text-slate-400 text-sm">이미 선택된 학생은 어둡게 표시됩니다.</p>
+                </div>
+                <div id="student-list" class="flex flex-wrap justify-center gap-3 min-h-[100px]"></div>
+            </div>
+
+            <div class="flex justify-center pt-4">
+                <button onclick="startVoting()" class="bg-blue-600 text-white px-20 py-6 rounded-[2rem] text-3xl font-black shadow-2xl hover:bg-blue-700 active:scale-95 transition-all">투표 시작하기</button>
+            </div>
+        </section>
+
+        <!-- (2) 투표 페이지 -->
+        <section id="vote-page" class="hidden fade-in space-y-8">
+            <div id="cooldown-banner" class="hidden w-full bg-orange-100 border-2 border-orange-200 text-orange-700 py-4 px-6 rounded-2xl text-center text-xl font-bold animate-pulse">
+                다음 투표까지 <span id="cooldown-timer">5</span>초 남았습니다. 잠시 기다려주세요.
+            </div>
+            <div id="vote-container" class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="bg-blue-50/50 p-8 rounded-[3rem] border-2 border-blue-100 shadow-inner">
+                    <div class="text-center mb-8">
+                        <span class="bg-blue-600 text-white px-6 py-2 rounded-full text-lg font-bold">TEAM A</span>
+                        <h3 class="text-2xl font-bold mt-4 text-blue-900">최고의 플레이어는?</h3>
+                    </div>
+                    <div id="team-a-candidates" class="grid grid-cols-2 gap-4"></div>
+                </div>
+                <div class="bg-red-50/50 p-8 rounded-[3rem] border-2 border-red-100 shadow-inner">
+                    <div class="text-center mb-8">
+                        <span class="bg-red-600 text-white px-6 py-2 rounded-full text-lg font-bold">TEAM B</span>
+                        <h3 class="text-2xl font-bold mt-4 text-red-900">최고의 플레이어는?</h3>
+                    </div>
+                    <div id="team-b-candidates" class="grid grid-cols-2 gap-4"></div>
+                </div>
+            </div>
+            <div class="flex justify-center gap-6 mt-10">
+                <button onclick="switchPage('setup-page')" class="bg-white border-2 border-slate-200 text-slate-600 px-10 py-5 rounded-2xl text-xl font-bold hover:bg-slate-50 transition-all">후보 수정</button>
+                <button onclick="showResults()" class="bg-green-600 text-white px-16 py-5 rounded-2xl text-2xl font-black shadow-lg hover:bg-green-700 transition-all">결과보기</button>
+            </div>
+        </section>
+
+        <!-- (3) 결과 페이지 -->
+        <section id="result-page" class="hidden fade-in space-y-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="glass-card p-10 rounded-[3rem] border-b-[16px] border-blue-500">
+                    <h2 class="text-4xl font-black text-blue-600 mb-10 text-center tracking-widest uppercase">Team A Result</h2>
+                    <div id="team-a-results" class="space-y-6"></div>
+                </div>
+                <div class="glass-card p-10 rounded-[3rem] border-b-[16px] border-red-500">
+                    <h2 class="text-4xl font-black text-red-600 mb-10 text-center tracking-widest uppercase">Team B Result</h2>
+                    <div id="team-b-results" class="space-y-6"></div>
+                </div>
+            </div>
+            <div class="flex flex-col items-center gap-6 mt-12">
+                <div class="flex gap-4">
+                    <button onclick="resetVotesOnly()" class="bg-slate-200 text-slate-700 px-8 py-4 rounded-xl font-bold hover:bg-slate-300">투표만 초기화</button>
+                    <button onclick="goToSetup()" class="bg-slate-900 text-white px-16 py-5 rounded-2xl text-2xl font-bold shadow-xl hover:bg-slate-800">완전히 처음으로</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 명단 작성 모달 -->
+    <div id="modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-6 modal-overlay">
+        <div class="bg-white w-full max-w-lg rounded-[2rem] p-8 shadow-2xl space-y-6">
+            <h2 class="text-2xl font-black text-slate-800">새 명단 작성</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-slate-500 mb-1">목록명 (예: 2학년 1반)</label>
+                    <input id="new-list-title" type="text" placeholder="명단 제목을 입력하세요" class="w-full border-2 border-slate-200 px-4 py-3 rounded-xl outline-none focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-slate-500 mb-1">학생 이름 (콤마 또는 줄바꿈으로 구분)</label>
+                    <textarea id="new-list-names" placeholder="김철수, 이영희, 박지성..." class="w-full border-2 border-slate-200 px-4 py-3 rounded-xl h-40 outline-none focus:border-indigo-500"></textarea>
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="closeModal()" class="flex-1 bg-slate-100 text-slate-500 py-4 rounded-xl font-bold">취소</button>
+                <button onclick="saveNewList()" class="flex-1 bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-indigo-200">저장하기</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-10 py-4 rounded-full text-xl font-bold opacity-0 transition-all transform scale-90 pointer-events-none shadow-2xl z-50">메시지</div>
+
+    <script>
+        const INITIAL_STUDENT_LISTS = {
+            "6학년 1반": ["강규범", "김나윤", "김루한", "김민건", "김승유", "김태휘", "양사랑", "이지후", "임시온", "임윤호", "임채린", "조민혁", "주서연", "차유청", "최서우"],
+            "5학년 1반": ["곽유찬", "권봄", "김보민", "김성민", "김이안", "김주하", "김하늘", "나라희", "박지현", "서지유", "원유준", "이서하", "이주안", "이지호", "임지호"],
+            "4학년 1반": ["길서현", "김다온", "김동률", "김세아", "김아루", "김태윤", "남가린", "박로아", "박봄", "박서우", "박채아", "손지호", "신초현", "안도영", "안시윤", "이시윤", "이은우", "임치욱", "장진이", "정위찬"],
+            "3학년 1반": ["강동원", "곽민서", "권민우", "김광명", "김도원", "박재아", "안도진", "오수호", "이선후", "이슬찬", "장훈석", "전수민", "전찬율"]
+        };
+        
+        let studentLists = { ...INITIAL_STUDENT_LISTS };
+        let currentListName = "6학년 1반";
+        let teamASlots = Array(10).fill("");
+        let teamBSlots = Array(10).fill("");
+        let currentSelected = { team: null, index: null };
+        let votes = { a: {}, b: {} };
+        let isVoteLocked = false;
+
+        const subTitleEl = document.getElementById('sub-title');
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(type) {
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                if (type === 'vote') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.1);
+                    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                    osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+                } else if (type === 'unlock') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+                    osc.frequency.linearRampToValueAtTime(660, audioCtx.currentTime + 0.1);
+                    osc.frequency.linearRampToValueAtTime(880, audioCtx.currentTime + 0.2);
+                    gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                    osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+                }
+            } catch(e) {}
+        }
+
+        window.onload = () => {
+            const savedLists = localStorage.getItem('bp_student_lists');
+            if (savedLists) {
+                const parsed = JSON.parse(savedLists);
+                studentLists = { ...parsed, ...INITIAL_STUDENT_LISTS };
+            }
+            updateListSelector();
+            renderSetup();
+        };
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.classList.remove('opacity-0', 'scale-90');
+            toast.classList.add('opacity-100', 'scale-100');
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'scale-90');
+                toast.classList.remove('opacity-100', 'scale-100');
+            }, 1000);
+        }
+
+        function updateListSelector() {
+            const sel = document.getElementById('list-selector');
+            sel.innerHTML = '<option value="">명단 선택하기</option>';
+            Object.keys(studentLists).sort((a, b) => b.localeCompare(a)).forEach(name => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.innerText = name;
+                if (name === currentListName) opt.selected = true;
+                sel.appendChild(opt);
+            });
+        }
+
+        function openModal() { document.getElementById('modal').classList.remove('hidden'); }
+        function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+
+        function saveNewList() {
+            const title = document.getElementById('new-list-title').value.trim();
+            const namesText = document.getElementById('new-list-names').value.trim();
+            if (!title || !namesText) { alert("제목과 이름을 모두 입력해주세요."); return; }
+            const names = namesText.split(/[\n,]+/).map(n => n.trim()).filter(n => n !== "");
+            if (names.length === 0) { alert("학생 이름을 한 명 이상 입력하세요."); return; }
+            studentLists[title] = names;
+            syncToStorage();
+            currentListName = title;
+            updateListSelector();
+            renderSetup();
+            closeModal();
+            showToast(`'${title}' 명단이 저장되었습니다.`);
+            document.getElementById('new-list-title').value = "";
+            document.getElementById('new-list-names').value = "";
+        }
+
+        function deleteCurrentList() {
+            if (INITIAL_STUDENT_LISTS[currentListName]) {
+                alert("기본 학년 명단(3~6학년)은 삭제할 수 없습니다.");
+                return;
+            }
+            if (confirm(`현재 명단('${currentListName}')을 정말 삭제하시겠습니까?`)) {
+                delete studentLists[currentListName];
+                syncToStorage();
+                currentListName = "6학년 1반";
+                updateListSelector();
+                renderSetup();
+                showToast("명단이 삭제되었습니다.");
+            }
+        }
+
+        function syncToStorage() {
+            const customLists = {};
+            Object.keys(studentLists).forEach(key => {
+                if (!INITIAL_STUDENT_LISTS[key]) customLists[key] = studentLists[key];
+            });
+            localStorage.setItem('bp_student_lists', JSON.stringify(customLists));
+        }
+
+        function loadSelectedList() {
+            const selected = document.getElementById('list-selector').value;
+            if (!selected) return;
+            currentListName = selected;
+            renderSetup();
+        }
+
+        function getAssignedStudents() {
+            return [...teamASlots, ...teamBSlots].filter(name => name !== "");
+        }
+
+        function renderSetup() {
+            const wrapA = document.getElementById('slots-a');
+            const wrapB = document.getElementById('slots-b');
+            const studentWrap = document.getElementById('student-list');
+            const deleteBtn = document.getElementById('delete-list-btn');
+            const assigned = getAssignedStudents();
+            const students = studentLists[currentListName] || [];
+
+            if (INITIAL_STUDENT_LISTS[currentListName]) {
+                deleteBtn.classList.add('opacity-30', 'pointer-events-none');
+            } else {
+                deleteBtn.classList.remove('opacity-30', 'pointer-events-none');
+            }
+
+            document.getElementById('current-list-name').innerText = `학생 명단 (${currentListName})`;
+            wrapA.innerHTML = ''; wrapB.innerHTML = ''; studentWrap.innerHTML = '';
+            document.getElementById('count-a').innerText = `${teamASlots.filter(n=>n!=="").length}/10`;
+            document.getElementById('count-b').innerText = `${teamBSlots.filter(n=>n!=="").length}/10`;
+
+            const createSlot = (name, i, team) => {
+                const isSelected = currentSelected.team === team && currentSelected.index === i;
+                const btn = document.createElement('button');
+                btn.className = `slot-btn h-14 border-2 rounded-xl font-bold text-lg relative overflow-hidden ${isSelected ? 'active border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-400'}`;
+                if (name) {
+                    btn.innerHTML = `<span>${name}</span><span class="absolute top-1 right-2 text-[10px] text-red-400">×</span>`;
+                    btn.classList.add('text-slate-800', 'border-blue-200');
+                } else btn.innerText = `슬롯 ${i+1}`;
+                btn.onclick = () => name ? removeStudent(team, i) : selectSlot(team, i);
+                return btn;
+            };
+
+            teamASlots.forEach((n, i) => wrapA.appendChild(createSlot(n, i, 'a')));
+            teamBSlots.forEach((n, i) => wrapB.appendChild(createSlot(n, i, 'b')));
+
+            students.forEach(name => {
+                const isUsed = assigned.includes(name);
+                const btn = document.createElement('button');
+                btn.className = `px-6 py-3 bg-slate-700 text-white rounded-xl font-bold text-xl hover:bg-slate-600 active:scale-90 transition-all ${isUsed ? 'student-disabled' : ''}`;
+                btn.innerText = name;
+                btn.onclick = () => !isUsed && assignStudent(name);
+                studentWrap.appendChild(btn);
+            });
+        }
+
+        function selectSlot(team, index) { currentSelected = { team, index }; renderSetup(); }
+        function removeStudent(team, index) { 
+            if (team === 'a') teamASlots[index] = ""; else teamBSlots[index] = ""; 
+            renderSetup(); 
+        }
+
+        function assignStudent(name) {
+            if (!currentSelected.team) { showToast("빈 슬롯을 먼저 선택하세요!"); return; }
+            if (currentSelected.team === 'a') teamASlots[currentSelected.index] = name;
+            else teamBSlots[currentSelected.index] = name;
+            const arr = currentSelected.team === 'a' ? teamASlots : teamBSlots;
+            const nextIdx = arr.findIndex((v, i) => v === "" && i > currentSelected.index);
+            if (nextIdx !== -1) currentSelected.index = nextIdx;
+            else currentSelected = { team: null, index: null };
+            renderSetup();
+        }
+
+        function clearTeam(team) {
+            if (confirm("팀 후보를 모두 초기화하시겠습니까?")) {
+                if (team === 'a') teamASlots = Array(10).fill(""); else teamBSlots = Array(10).fill("");
+                currentSelected = { team: null, index: null };
+                renderSetup();
+            }
+        }
+
+        function switchPage(pageId) {
+            document.querySelectorAll('section').forEach(sec => sec.classList.add('hidden'));
+            document.getElementById(pageId).classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function startVoting() {
+            const finalA = teamASlots.filter(n => n !== "");
+            const finalB = teamBSlots.filter(n => n !== "");
+            if (finalA.length === 0 || finalB.length === 0) { alert("팀별로 최소 1명 이상의 후보가 등록되어야 합니다."); return; }
+            votes.a = {}; finalA.forEach(n => votes.a[n] = 0);
+            votes.b = {}; finalB.forEach(n => votes.b[n] = 0);
+            renderVoteButtons(finalA, finalB);
+            switchPage('vote-page');
+            subTitleEl.innerText = "원하는 선수를 선택하세요 (투표 후 5초 대기)";
+        }
+
+        function renderVoteButtons(finalA, finalB) {
+            const wrapA = document.getElementById('team-a-candidates');
+            const wrapB = document.getElementById('team-b-candidates');
+            wrapA.innerHTML = ''; wrapB.innerHTML = '';
+            const makeBtn = (name, team, color) => {
+                const b = document.createElement('button');
+                b.className = `candidate-btn h-28 bg-white border-2 border-${color}-100 rounded-3xl shadow-sm text-2xl font-black text-${color}-700 hover:border-${color}-400 hover:bg-${color}-50`;
+                b.innerText = name; b.onclick = () => handleVote(name, team);
+                return b;
+            };
+            finalA.forEach(n => wrapA.appendChild(makeBtn(n, 'a', 'blue')));
+            finalB.forEach(n => wrapB.appendChild(makeBtn(n, 'b', 'red')));
+        }
+
+        function handleVote(name, team) {
+            if (isVoteLocked) return;
+            votes[team][name]++;
+            playSound('vote');
+            showToast(`${name}님 투표 완료!`);
+            setVoteLock(true);
+            let timeLeft = 5;
+            const timerEl = document.getElementById('cooldown-timer');
+            const bannerEl = document.getElementById('cooldown-banner');
+            bannerEl.classList.remove('hidden'); timerEl.innerText = timeLeft;
+            const countdown = setInterval(() => {
+                timeLeft--; timerEl.innerText = timeLeft;
+                if (timeLeft <= 0) {
+                    clearInterval(countdown); setVoteLock(false); bannerEl.classList.add('hidden'); playSound('unlock');
+                }
+            }, 1000);
+        }
+
+        function setVoteLock(lock) {
+            isVoteLocked = lock;
+            document.querySelectorAll('.candidate-btn').forEach(btn => btn.disabled = lock);
+            const container = document.getElementById('vote-container');
+            lock ? container.classList.add('vote-locked') : container.classList.remove('vote-locked');
+        }
+
+        function showResults() { renderResults(); switchPage('result-page'); subTitleEl.innerText = "투표 최종 결과"; }
+
+        function renderResults() {
+            const wrapA = document.getElementById('team-a-results');
+            const wrapB = document.getElementById('team-b-results');
+            wrapA.innerHTML = ''; wrapB.innerHTML = '';
+            const draw = (teamVotes, container, color) => {
+                const sorted = Object.entries(teamVotes).sort((a, b) => b[1] - a[1]);
+                const total = Object.values(teamVotes).reduce((s, v) => s + v, 0) || 1;
+                const max = sorted[0][1] || 1;
+                sorted.forEach(([name, count]) => {
+                    const width = (count / max) * 100;
+                    const div = document.createElement('div');
+                    div.className = "mb-8";
+                    div.innerHTML = `
+                        <div class="flex justify-between items-end mb-2">
+                            <span class="text-2xl font-bold text-slate-800">${name}</span>
+                            <span class="text-xl font-black text-${color}-600 bg-${color}-50 px-4 py-1 rounded-lg">${count}표</span>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-2xl h-8 overflow-hidden border border-slate-200">
+                            <div class="bg-${color}-500 h-full transition-all duration-1000 ease-out flex items-center justify-end pr-4 text-white text-xs font-bold" style="width: 0%">
+                                ${count > 0 ? Math.round((count/total)*100) + '%' : ''}
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                    setTimeout(() => {
+                        const bar = div.querySelector(`.bg-${color}-500`);
+                        if(bar) bar.style.width = width + '%';
+                    }, 200);
+                });
+            };
+            draw(votes.a, wrapA, 'blue'); draw(votes.b, wrapB, 'red');
+        }
+
+        function goToSetup() { 
+            if (confirm("처음으로 돌아가시겠습니까? 모든 선택 사항이 초기화됩니다.")) {
+                teamASlots = Array(10).fill("");
+                teamBSlots = Array(10).fill("");
+                currentSelected = { team: null, index: null };
+                subTitleEl.innerText = "슬롯을 선택한 후 학생 이름을 터치하세요"; // 초기 문구 복구
+                renderSetup();
+                switchPage('setup-page');
+            }
+        }
+        function resetVotesOnly() { 
+            if (confirm("득표수만 초기화할까요?")) { 
+                Object.keys(votes.a).forEach(k => votes.a[k] = 0); 
+                Object.keys(votes.b).forEach(k => votes.b[k] = 0); 
+                subTitleEl.innerText = "원하는 선수를 선택하세요 (투표 후 5초 대기)";
+                switchPage('vote-page'); 
+            } 
+        }
+    </script>
+</body>
+</html>
